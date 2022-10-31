@@ -1,0 +1,220 @@
+#importing libraries
+import pandas as pd
+import win32com.client as win32
+from pathlib import Path
+
+#importing databases
+sales = pd.read_excel(r'C:\Users\cath_\Downloads\Jupyter\Projeto AutomacaoIndicadores\Bases de Dados\Vendas.xlsx')
+emails = pd.read_excel(r'C:\Users\cath_\Downloads\Jupyter\Projeto AutomacaoIndicadores\Bases de Dados\Emails.xlsx')
+stores = pd.read_csv(r'C:\Users\cath_\Downloads\Jupyter\Projeto AutomacaoIndicadores\Bases de Dados\Lojas.csv', sep = ';', encoding='latin1')
+
+#merging vendas_df and lojas_df databases
+sales_df = sales.merge(stores, on = 'ID Loja')
+display(sales_df)
+display(emails)
+
+#identifying the latest day for the daily report
+day_report = sales_df['Data'].max()
+
+#creating different files and folders for each store
+dic_tables = {}
+for store in stores['Loja']:
+    dic_tables[store] = sales_df.loc[sales_df['Loja'] == store]
+    
+#saving each file in each store folder
+path = Path(r'Backup Arquivos Lojas')
+files = path.iterdir()
+backup_folder_list = [file.name for file in files]
+
+for store in dic_tables:
+    if store not in backup_folder_list:
+        new_folder = path / store
+        new_folder.mkdir()
+    file_name = '{}_{}_{}.xlsx'.format(day_report.month, day_report.day, store)
+    file_path = path / store / file_name
+    dic_tables[store].to_excel(file_path)
+
+#defining the goals for each KPI
+sales_year_goal = 1650000
+sales_day_goal = 1000
+annual_product_mix_goal = 120
+daily_product_mix_goal = 4
+average_sales_year_goal = 500
+average_sales_day_goal = 500
+
+#calculating the KPIs for each store
+for store in dic_tables:
+    #defining base of the day and of the year for one store
+    store_df = dic_tables[store]
+    store_day_df = store_df.loc[store_df['Data'] == day_report, :]
+
+    #calculating sales of the day and of the year
+    sales_year = float(store_df['Valor Final'].sum())
+    sales_day = float(store_day_df['Valor Final'].sum())
+
+    #calculating product mix sold by day and by year
+    annual_product_mix = len(store_df['Produto'].unique())
+    daily_product_mix = len(store_day_df['Produto'].unique())
+
+    #calculating medium sales value per day and per year
+    sales_value = store_df.groupby('Código Venda').sum()
+    average_sales_year = sales_value['Valor Final'].mean()
+    sales_value_day = store_day_df.groupby('Código Venda').sum()
+    average_sales_day = sales_value_day['Valor Final'].mean()
+    
+    #defining status colors based on goals
+    if sales_day >= sales_day_goal:
+        color_sales_day = 'green'
+    else:
+        color_sales_day = 'red'
+    if sales_year >= sales_year_goal:
+        color_sales_year = 'green'
+    else:
+        color_sales_year = 'red'
+    if daily_product_mix >= daily_product_mix_goal:
+        color_product_mix_day = 'green'
+    else:
+        color_product_mix_day = 'red'
+    if annual_product_mix >= annual_product_mix_goal:
+        color_product_mix_year = 'green'
+    else:
+        color_product_mix_year = 'red'
+    if average_sales_day >= average_sales_day_goal:
+        color_sales_average_day = 'green'
+    else:
+        color_sales_average_day = 'red'
+    if average_sales_year  >= average_sales_year_goal:
+        color_sales_average_year = 'green'
+    else:
+        color_sales_average_year = 'red'
+
+    #writing emails
+    outlook = win32.Dispatch('outlook.application')
+    nome = emails.loc[emails['Loja'] == store, 'Gerente'].values[0]
+    mail = outlook.CreateItem(0)
+    mail.To = emails.loc[emails['Loja'] == store, 'E-mail'].values[0]
+    mail.Subject = f'OnePage Day {day_report.month}/{day_report.day}_Store {store}'
+    mail.HTMLBody = f'''
+    <p>Dear {nome},</p>
+
+    <p>Below your store results of yesterday <strong>({day_report.month}/{day_report.day})</strong>: </p>
+    
+    #creating a HTML table
+    
+    <table>
+      <tr>
+        <th>KPI</th>
+        <th>Day Value </th>
+        <th>Day Goal </th>
+        <th>Day Status</th>
+      </tr>
+      <tr>
+        <td>Sales</td>
+        <td style="text-align: center">R${sales_day:,.2f}</td>
+        <td style="text-align: center">R${sales_day_goal:,.2f}</td>
+        <td style="text-align: center"><font color="{color_sales_day}">◙</font></td>
+      </tr>
+      <tr>
+        <td>Product Mix</td>
+        <td style="text-align: center">{daily_product_mix}</td>
+        <td style="text-align: center">{daily_product_mix_goal}</td>
+        <td style="text-align: center"><font color="{color_product_mix_day}">◙</font></td>
+      </tr>
+      <tr>
+        <td>Sales Average</td>
+        <td style="text-align: center">R${average_sales_day:,.2f}</td>
+        <td style="text-align: center">R${average_sales_day_goal:,.2f}</td>
+        <td style="text-align: center"><font color="{color_sales_average_day}">◙</font></td>
+      </tr>
+    </table>
+    <br>
+    <table>
+      <tr>
+        <th>KPI</th>
+        <th>Year Value </th>
+        <th>Year Goal </th>
+        <th>Year Status</th>
+      </tr>
+      <tr>
+        <td>Sales</td>
+        <td style="text-align: center">R${sales_year:,.2f}</td>
+        <td style="text-align: center">R${sales_year_goal:,.2f}</td>
+        <td style="text-align: center"><font color="{color_sales_year}">◙</font></td>
+      </tr>
+      <tr>
+        <td>Product Mix</td>
+        <td style="text-align: center">{ annual_product_mix}</td>
+        <td style="text-align: center">{annual_product_mix_goal}</td>
+        <td style="text-align: center"><font color="{color_product_mix_year}">◙</font></td>
+      </tr>
+      <tr>
+        <td>Sales Average</td>
+        <td style="text-align: center">R${average_sales_year:,.2f}</td>
+        <td style="text-align: center">R${average_sales_year_goal:,.2f}</td>
+        <td style="text-align: center"><font color="{color_sales_average_year}">◙</font></td>
+      </tr>
+    </table>
+
+
+    <p>Attached full report of this year.</p>
+    
+    <p>If you have any question, don't hesitate in contacting me.</p>
+    
+    <p>Best regards,</p>
+    
+    <p>Catharine</p>
+    
+    '''
+    attachment = Path.cwd() / path / store / f'{day_report.month}_{day_report.day}_{store}.xlsx'
+    mail.Attachments.Add(str(attachment))
+
+    mail.Send()
+
+#creating an annual store ranking based on sales
+annual_ranking = sales_df.groupby('Loja').sum()
+annual_ranking = annual_ranking.sort_values('Valor Final', ascending = False)
+annual_ranking = annual_ranking['Valor Final']
+annual_ranking.to_excel(f'C:/Users/cath_/Downloads/Jupyter/Projeto AutomacaoIndicadores/Backup Arquivos Lojas/Store Annual Ranking_{day_report.month}_{day_report.day}.xlsx')
+
+#creating an daily store ranking based on sales
+daily_base = sales_df.loc[sales_df['Data'] == day_report]
+daily_ranking = daily_base.groupby('Loja').sum()
+daily_ranking = daily_ranking.sort_values('Valor Final', ascending = False)
+daily_ranking = daily_ranking['Valor Final']
+daily_ranking.to_excel(f'C:/Users/cath_/Downloads/Jupyter/Projeto AutomacaoIndicadores/Backup Arquivos Lojas/Store Daily Ranking_{day_report.month}_{day_report.day}.xlsx')
+
+#defining the first and the last of each ranking
+first_store_daily = daily_ranking.index[0]
+sales_first_daily = daily_ranking.max()
+first_store_annual = annual_ranking.index[0]
+sales_first_annual = annual_ranking.max()
+last_store_daily = daily_ranking.index[-1]
+sales_last_daily = daily_ranking.min()
+last_store_annual = annual_ranking.index[-1]
+sales_last_annual = annual_ranking.min()
+
+#writing email for the directors
+outlook = win32.Dispatch('outlook.application')
+mail = outlook.CreateItem(0)
+mail.To = emails.loc[emails['Loja'] == 'Diretoria', 'E-mail'].values[0]
+mail.Subject = f'Store Ranking {day_report.month}/{day_report.day}'
+mail.Body = f'''
+Dear all,
+
+Attached files with daily and annual ranking for our stores.
+
+Best store of the year: {first_store_annual} Yearly sales: R${sales_first_annual :,.2f}
+Worst store of the year: {last_store_annual} Yearly sales: R${sales_last_annual :,.2f}
+Best store of today: {first_store_daily} Daily sales: R${sales_first_daily :,.2f} 
+Worst store of today: {last_store_daily} Daily sales: R${sales_last_daily :,.2f}
+
+If you have any question, don't hesitate in contacting me.
+
+Best regards,
+
+Catharine
+'''
+mail.Attachments.Add(attachment_1)
+mail.Attachments.Add(attachment_2)
+
+mail.Send()
